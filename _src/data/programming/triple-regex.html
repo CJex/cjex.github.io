@@ -1,0 +1,478 @@
+---
+title: 正则表达式匹配N的倍数
+date: 2014-8-15
+---
+
+<p><a href="http://regex.alf.nu/9" target="_blank">Regex Golf</a>上有一道题名为 Triples，即要求用正则表达式匹配3的倍数，还有一道匹配7的倍数的练习题。这种问题如果人肉解决的话，相当于做一道包含几十个数的四则运算题，不管你怎么想，反正我小时候遇到五个数以上的四则运算题都是直接略过。小时候不好好学习，现在该怎么办呢？——现在我会写代码了啊。
+解决方案其实很简单：写程序构造一个接受3的倍数的<a href="https://zh.wikipedia.org/zh/%E7%A1%AE%E5%AE%9A%E6%9C%89%E9%99%90%E7%8A%B6%E6%80%81%E8%87%AA%E5%8A%A8%E6%9C%BA" target="_blank">DFA</a>，再将其转换成正则式即可。</p>
+
+<h2>Finite Automaton</h2>
+<p>术语听起来都好抽象，其实解决思路就像小学生做除法一样简单。比如我们如何判定<code>4641</code>是3的倍数？
+从左往右一个数一个数地计算，最后余0即可：</p>
+<pre style="display:table;min-width:20em;margin:0 auto;">
+4641
+4    % 3 =&gt; 1
+16   % 3 =&gt; 1
+ 14  % 3 =&gt; 2
+  21 % 3 =&gt; 0
+</pre>
+<p>一次读一个数字，然后输出一个余数，如果最后余0则表示OK。影响我们判断的有两个因素：上次运算结果的余数，当前读入的字符。自动机就是这样一种机器，开始处于一个状态，每次读入一个字符，然后输出一个新状态。所以上面的运算可以用下面的自动机执行过程表示，起始状态为0，余数即为输出状态：</p>
+<table class="plain">
+  <tr>
+    <td>
+<pre>
+  4
+0 =&gt; 1
+</pre>
+    </td>
+    <td>
+<pre>
+  6
+1 =&gt; 1
+</pre>
+    </td>
+    <td>
+<pre>
+  4
+1 =&gt; 2
+</pre>
+    </td>
+    <td>
+<pre>
+  1
+2 =&gt; 0
+</pre>
+    </td>
+  </tr>
+</table>
+
+<p>用人话来讲就是：上次余数为0时，遇到4则余1；上次余1时遇到6则还余1；……<br/>
+数字只有10个，所以我们可以穷举，除3余数只有0、1、2三种可能，当余数为任意一个时，下一次遇到的数字只有10种可能，
+全部情况列举成一张表：</p>
+<table style="text-align:center">
+  <thead>
+    <tr>
+    <td>上次余数（From State）</td>
+    <td>遇到数字（Input Char）</td>
+    <td>输出余数（To State）</td>
+    </tr>
+  </thead>
+  <tr><td rowspan="3">0</td><td>0、3、6、9</td><td>0</td></tr>
+  <tr><td>1、4、7</td><td>1</td></tr>
+  <tr><td>2、5、8</td><td>2</td></tr>
+  <tr><td rowspan="3">1</td><td>0、3、6、9</td><td>1</td></tr>
+  <tr><td>1、4、7</td><td>2</td></tr>
+  <tr><td>2、5、8</td><td>0</td></tr>
+  <tr><td rowspan="3">2</td><td>0、3、6、9</td><td>2</td></tr>
+  <tr><td>1、4、7</td><td>0</td></tr>
+  <tr><td>2、5、8</td><td>1</td>
+  </tr>
+</table>
+
+<p>教科书都喜欢画DFA流程图，我也用<a href="http://www.graphviz.org/" target="_blank">GraphViz</a>将就画个（这么乱的图真能帮助理解吗）：</p>
+<p class="text-center">
+  <a href="<%=site.url_for "img/TripleDFA.gv" %>" target="_blank"><img src="<%=site.url_for "img/TripleDFA.png" %>" alt="Triple DFA Diagram" /></a>
+</p>
+<p>接下来其实就可以动手写程序自动生成这张表了：</p>
+<div class="center">
+<highlight js>
+/**
+自动构造接受N的倍数的DFA
+@return { fromState => { Char => toState } }
+*/
+function buildDFA(N) {
+  var map={},i,j,to;
+  // i 为 From State
+  for (i=0;i<N;i++) //FromState不会超过N，因为余数肯定小于N嘛
+    for (j=0;j<10;j++) { // j 为枚举Input Digit Char
+      //当上次余i这次碰到j时，除N的余数即为输出状态
+      to=(i*10+j) % N;
+      (map[i]=map[i]||{})[j]=to;
+    }
+  return map;
+}
+</highlight>
+</div>
+<p>这代码也太简单了，用JavaScript写的好处就是现在按下<code>F12</code>将代码贴进去运行下就能看到结果了。可生成这张表有什么用呢？再写个执行DFA的函数就大功告成了：</p>
+<div class="center">
+<highlight js>
+/**
+运行DFA
+@param {DFA}    a 就是buildDFA返回的表
+@param {String} s 输入数字串
+@return 如果输入匹配则返回true
+*/
+function runDFA(a,s) {
+  for (var i=0,from=0,l=s.length;i<l;i++) {
+    from=a[from][s[i]];//获取到下一个状态
+    if (from===undefined) return false;
+  }
+  return from===0;//最后余0则OK
+}
+//测试是否是3的倍数
+runDFA(buildDFA(3), ""+4614);
+</highlight></div>
+<p>至此已经做到了生成及执行匹配任意整数倍数的DFA，注意是任意位数的N及其倍数哦。接下来的工作就是将自动机转换成正则表达式。有很多种算法，这里只介绍最易于理解的解方程法。</p>
+
+<h2>Arden's Lemma</h2>
+<p>这种方法就是将自动机中的状态变换看成方程组，然后用解方程的方式化简自动机，逐步消减状态，最后合并成一个正则式。该方法基于<a href="https://en.wikipedia.org/wiki/Arden%27s_Rule" target="_blank">Arden's Lemma</a>：</p>
+<div style="text-align:center;border-radius:8px;background:white;color:black;" class="math">
+L = UL ∪ V ⟺ L = U ∗ V
+</div>
+<p>看上去好抽象，其实只是Minify过了而已。其中的道理很简单，先看下面的DFA如何转换成正则式：</p>
+<table class="plain">
+  <tr>
+    <td>
+<pre>
+  a
+0 =&gt; 0
+</pre>
+    </td>
+    <td>
+<pre>
+  b
+0 =&gt; 1
+</pre>
+    </td>
+  </tr>
+</table>
+
+<p>其中0、1为状态，a、b表示Char，0为起始状态，1为接受状态。这个只包含两条变换的自动机对应于正则式：<code>a*b</code>，这就是<em>Arden's Lemma</em>表达的意思。单这一条引理其实还不够，我们还需要了解正则式其它几个基础性质。我们把这正则式整体当成一个自动机的话，它就是<code>0 =&gt; 1</code>这样一个变换。
+正则式的串联，比如<code>a*bc*d</code>，对应于自动机的串联：</p>
+<table class="plain">
+  <tr>
+    <td>
+<pre>
+  a
+0 =&gt; 0
+</pre>
+    </td>
+    <td>
+<pre>
+  b
+0 =&gt; 1
+</pre>
+    </td>
+    <td>
+<pre>
+  c
+1 =&gt; 1
+</pre>
+    </td>
+    <td>
+<pre>
+  d
+1 =&gt; 2
+</pre>
+    </td>
+  </tr>
+</table>
+
+<p>其中2为接受状态。那么两个正则式的串联，则可以看成将整体串联成 <code>0 =&gt; 1 =&gt; 2</code>得到<code>0 =&gt; 2</code>。
+依此类推，正则式的并联，如<code>(a|b)c</code>，对应于自动机的并联：</p>
+<table class="plain">
+  <tr>
+    <td>
+<pre>
+  a
+0 =&gt; 1
+</pre>
+    </td>
+    <td rowspan="2">
+<pre>
+  c
+1 =&gt; 2
+</pre>
+    </td>
+  </tr>
+  <tr>
+    <td>
+<pre>
+  b
+0 =&gt; 1
+</pre>
+    </td>
+  </tr>
+</table>
+<p>好了，其实正则表达式与自动机相互转换的方法就这些。应用到前面的Triple DFA，比如<code>0 =&gt; 0</code>的变换有四条，所以正则式为<code>(0|3|6|9)*</code>，当然更简单的写法是<code>[0369]*</code>，前面<code>buildDFA</code>函数生成的表虽易于执行，但却不便于转换到正则式，所以写一个直接输出如下格式的函数更方便：</p>
+<div class="center">
+<highlight json>
+{
+  "0":{
+    "0":"[0369]",
+    "1":"[147]",
+    "2":"[258]",
+  }
+}
+</highlight>
+</div>
+<p>改写后的<code>buildTable</code>函数（其中<code>reflect</code>表后面再解释）：</p>
+<div class="center">
+<highlight js>
+function buildTable(n) {
+  var map={},reflect={},i,j,to,path;
+  for (i=0;i<n;i++) {
+    path=map[i]={};
+    for (j=0;j<10;j++) {
+      to=(i*10+j) % n;
+      path[to]=path[to] || '';
+      path[to]+=j;
+      if (to>i)
+        (reflect[to]=reflect[to] || {})[i]=1;
+    }
+    for (to in path)
+      if (path[to].length>1)
+        path[to]='['+path[to]+']';
+  }
+  for (to in reflect)
+    reflect[to]=Object.keys(reflect[to]);
+  return {map:map,reflect:reflect};
+}
+</highlight>
+</div>
+
+<p>我们的目标是转换成的正则式只匹配除3余0的数，最终生成的正则式只能是一个<code>0 =&gt; 0</code>的变换，这样才能保证成功匹配时的结束状态一定是0。所以只需要把所有可能的<code>0 =&gt; …… =&gt; 0</code>不重复的变换路径进行并联，就能得到最终的正则式。
+比如将<code>0 =&gt; 1 =&gt; 0</code>和<code>0 =&gt; 0</code>并联得到正则式：<code>([0369]|[147][258])*</code>，依此类推。应用前面的<em>Arden's Lemma</em>及其它几条方法，将所有的变换都化简成一条<code>0 =&gt; 0</code>变换，这个过程就像在解一个方程，将不可接受状态当成未知量化解成用0这个可接受状态表示。例如对于TripleDFA，约去状态2的步骤如下所示：</p>
+<table>
+  <tr>
+    <th>Origin</th>
+    <th>应用<em>Arden's Lemma</em></th>
+  </tr>
+  <tr>
+    <td>
+<highlight json>
+{
+  "2": {
+    "0": "[147]",
+    "1": "[258]",
+    "2": "[0369]"
+  }
+}
+</highlight>
+    </td>
+    <td>
+<highlight json>
+{
+  "2": {
+    "0": "[0369]*[147]",
+    "1": "[0369]*[258]"
+  }
+}
+</highlight>
+    </td>
+  </tr>
+</table>
+<p>然后再将状态1输出中的状态2替换掉，其它依此类推：</p>
+<table>
+  <tr>
+    <th>Origin</th>
+    <td>
+<highlight json>
+{
+ "1": {
+    "0": "[258]",
+    "1": "[0369]",
+    "2": "[147]"
+  }
+}
+</highlight>
+    </td>
+  </tr>
+  <tr>
+    <th><code>1 =&gt; 2 => X</code>串联</th>
+    <td>
+<highlight json>
+{
+  "1": {
+    "0": "[258]",
+    "1": "[0369]",
+    "0": "[147][0369]*[147]",
+    "1": "[147][0369]*[258]"
+  }
+}
+</highlight>
+    </td>
+  </tr>
+  <tr>
+    <th><code>1 =&gt; X</code>并联</th>
+    <td>
+<highlight json>
+{
+  "1": {
+    "0": "[258]|[147][0369]*[147]",
+    "1": "[0369]|[147][0369]*[258]"
+  }
+}
+</highlight>
+    </td>
+  </tr>
+</table>
+<p>前面<code>buildTable</code>中的<code>reflect</code>表就是用于反查哪些状态可以到达当前要约去的状态，以便将其替换掉。</p>
+
+<p>在化简过程中，无非对正则式进行串联、并联、重复这三种操作，相应的处理函数如下：</p>
+<div class="center">
+<highlight js>
+// seq(["[147]","[258]"]) => "[147][258]"
+function seq(a) {
+  return {
+    type:'seq',
+    toString:function () {
+      var re=a.join("");
+      if (this.repeat)
+        re=a.length>1?'('+re+')*':re+'*';
+      return re;
+    }
+  };
+}
+// choice(["[147]","[258]"]) => "[147]|[258]"
+function choice(a) {
+  var items=[];
+  //这一步其实只是为了使生成的正则式更短一些
+  //按并联的结合性，"a|(b|c)" 等同于 "a|b|c"
+  a.forEach(function (re) {
+    if (re.type==='choice')
+      items=items.concat(re.items);
+    else if (re)
+      items.push(re);
+  });
+  return {
+    type:'choice', items:items,
+    toString:function () {
+      var re=items.join("|");
+      if (items.length>1 || this.repeat) re='('+re+')';
+      if (this.repeat) re+='*';
+      return re;
+    }
+  };
+}
+// 将一个正则式标志为重复
+function repeat(re) {
+  if (typeof re==='string') return re+'*';
+  re.repeat=true;
+  return re;
+}
+</highlight>
+</div>
+<p>除去拼接正则式的代码，最终的函数也不算长：</p>
+<div class="center">
+<highlight js>
+function buildRegex(n) {
+  var table=buildTable(n),i=n,j,k,to,path;
+  var map=table.map,reflect=table.reflect;
+  while (--i) {
+    var trans=map[i],t={},
+        prefix=trans[i]?repeat(trans[i]):'';
+    for (to in trans)
+      if (to<i) t[to]=trans[to];
+
+    trans=t;
+    if (prefix) for (to in trans)
+      trans[to]=seq([prefix,trans[to]]);
+
+    var entrances=reflect[i];
+    for (j=entrances.length;j--;) {
+      var from=entrances[j];
+      path=map[from];
+      prefix=path[i];
+      for (to in trans)
+        path[to]=choice([path[to] || '',seq([prefix,trans[to]])]);
+    }
+  }
+  return '^'+repeat(map[0][0])+'$';
+}
+</highlight>
+</div>
+
+<p>执行<code>buildRegex(3)</code>生成的正则表达式如下，<a href="http://regex.alf.nu/9" target="_blank">Regex Golf</a>评分 523 Points：</p>
+<pre>^([0369]|[258][0369]*[147]|([147]|[258][0369]*[258])([0369]|[147][0369]*[258])*([258]|[147][0369]*[147]))*$</pre>
+
+<p>这个函数生成出的匹配7的倍数的正则式有近16K，虽然说它能生成匹配任意位整数倍数的正则式，但这并不现实，因为它生成的正则式体积呈指数级增涨，生成20以上的正则式内存就不够用了。而这么长的正则式让JS的正则引擎去解析的话，大约15以上就会报错。如果去执行匹配测试的话，大于13就有可能返回 False，这是因为执行时间过长，正则引擎就会放弃执行。优化当然还是可以做的，比如生成的正则式输出时使用非捕获分组如<code>(:?[147])</code>，执行速度则可以提升好几倍。</p>
+
+<p>我知道很多人会说用正则式匹配3的倍数效率太低了，有什么必要呢？我当然知道没人真的会这么用正则式，<strong>但这道理还是需要讲明白的</strong>。姑且不谈使用<code>atoi</code>的方法即使在64位机上也只能处理长度不超过二十位的数字，试问这个正则表达式真的很慢吗？这可不一定。正则引擎其实还是将正则式转换成DFA或NFA执行的，如果是编译到DFA，虽然编译会花费些时间和内存，但执行速度只慢在额外的内存读取，DFA复杂度和<code>atoi</code>函数一样都是<span class="math">Θ(n)</span>，即使慢也只是常数倍。如果直接执行原始DFA，理论上可以和<code>atoi</code>函数一样快，这道理是明摆着的。
+你不信的话，用下面的C++程序测试看，即使<a href="https://code.google.com/p/re2" target="_blank">re2</a>也只不过慢了5倍而已：</p>
+<div class="center">
+<highlight c++>
+#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>
+#include <re2/re2.h>
+#define LOOP_TIMES 10000000
+int main() {
+  int dfa[3][10]={
+    0,1,2,0,1,2,0,1,2,0,
+    1,2,0,1,2,0,1,2,0,1,
+    2,0,1,2,0,1,2,0,1,2};
+  clock_t start;int i;
+  const char* num="2147483646";
+
+  i=LOOP_TIMES;
+  start=clock();
+  while (i--) {
+    const char* str=num;
+    int from=0;
+    while( *str ) {
+      from=dfa[from][(*str++ - '0')];
+    }
+    int isTriple=from==0;
+  }
+  printf(" DFA:%d\n",clock()-start);
+
+  i=LOOP_TIMES;
+  start=clock();
+  while (i--) {
+    unsigned int val = atoi(num);
+    int isTriple = (val % 3)==0;
+  }
+  printf("atoi:%d\n",clock()-start);
+
+  RE2::Options opt(RE2::Latin1);
+  opt.set_never_capture(true);
+  RE2 re("(?:[0369]|[258][0369]*[147]|"
+  "(?:[147]|[258][0369]*[258])"
+  "(?:[0369]|[147][0369]*[258])*"
+  "(?:[258]|[147][0369]*[147]))*",opt);
+
+  i=LOOP_TIMES;
+  start=clock();
+  while (i--) {
+    int isTriple =RE2::FullMatch(num, re);
+  }
+  printf(" re2:%d\n",clock()-start);
+}
+</highlight>
+</div>
+
+<p>如果你仍然觉得正则表达式肯定很慢的话，那看下面的JavaScript测试程序：</p>
+<highlight js>
+var LOOP_TIMES=10000000;
+var re=/^(?:[0369]|[258][0369]*[147]|(?:[147]|[258][0369]*[258])(?:[0369]|[147][0369]*[258])*(?:[258]|[147][0369]*[147]))*$/;
+var s="31457283145728",
+    i,isTriple,start;
+start=+new Date;
+i=LOOP_TIMES;
+while (i--) isTriple=re.test(s);
+console.log("  RegExp:",(+new Date)-start);
+
+start=+new Date;
+i=LOOP_TIMES;
+while (i--) isTriple=parseInt(s)%3 === 0;
+console.log("parseInt:",(+new Date)-start);
+</highlight>
+
+<p>运行结果显示<code>parseInt</code>方式更慢！为什么？呵呵，因为JS中 Number 是双精度64位浮点数，如果将上面C++程序中<code>atoi</code>改成<code>atof</code>、使用<code>fmod</code>取余的话，运行结果显示取余比正则式只快了不到一倍！</p>
+<p>好了，现在至少没人再拿这正则表达式效率低说事了吧。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

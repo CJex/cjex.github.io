@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+<title>Memoization in PHP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Memoization in PHP" />
+<link rel="stylesheet" type="text/css" href="../css/style.css" />
+<link rel="alternate" type="application/rss+xml" title="I'm Jex" href="../rss.xml"/>
+<link rel="shortcut icon" href="../favicon.png" type="image/png" />
+</head>
+<body>
+  <nav class="category-path">
+   <a href="../index.html" rel="home">Home</a> »
+    
+    <a href="../programming/index.html" rel="category">Programming</a> »
+    
+    <em>Memoization in PHP</em>
+</nav>
+
+  <h1 class="article-title">
+    <a href="./memoization-in-php.html" rel="self" class="normal">Memoization in PHP</a>
+  </h1>
+  <div class="title-info">
+    <small><a href="https://jex.im/" rel="author" class="normal">Jex</a> — <time>2010-11-11</time></small>
+  </div>
+
+
+  
+  <article  id="main">
+    <p>谈到PHP应用的性能优化，很多人最先想到的都是缓存。因为PHP一般不会用于完成计算密集型任务，算法优化的余地很小，所以性能瓶颈不会出现在CPU上，而更可能出现在IO上。而IO操作通常优化方案都是采用缓存，最常见的缓存情形莫过于这样一次数据库查询了：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">query_posts</span><span class="p">(</span><span class="nv">$author</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">global</span> <span class="nv">$pdo</span><span class="p">,</span><span class="nv">$memcache</span><span class="p">;</span>
+  <span class="nv">$sql</span><span class="o">=</span><span class="s1">&#39;SELECT * FROM `posts` WHERE author=:author ORDER BY `date`&#39;</span><span class="p">;</span>
+  <span class="nv">$cacheKey</span><span class="o">=</span><span class="s2">&quot;author_</span><span class="si">{</span><span class="nv">$author</span><span class="si">}</span><span class="s2">_posts&quot;</span><span class="p">;</span>
+  <span class="nv">$results</span><span class="o">=</span><span class="nv">$memcache</span><span class="o">-&gt;</span><span class="na">get</span><span class="p">(</span><span class="nv">$cacheKey</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="k">false</span><span class="o">===</span><span class="nv">$results</span><span class="p">)</span> <span class="p">{</span> <span class="c1">//缓存没有命中则执行查询并将结果存到memcache</span>
+    <span class="nv">$sth</span><span class="o">=</span><span class="nv">$pdo</span><span class="o">-&gt;</span><span class="na">prepare</span><span class="p">(</span><span class="nv">$sql</span><span class="p">);</span>
+    <span class="nv">$sth</span><span class="o">-&gt;</span><span class="na">bindParam</span><span class="p">(</span><span class="s1">&#39;:author&#39;</span><span class="p">,</span> <span class="nv">$author</span><span class="p">,</span> <span class="nx">PDO</span><span class="o">::</span><span class="na">PARAM_STR</span><span class="p">);</span>
+    <span class="nv">$sth</span><span class="o">-&gt;</span><span class="na">execute</span><span class="p">();</span>
+    <span class="nv">$results</span><span class="o">=</span><span class="nv">$sth</span><span class="o">-&gt;</span><span class="na">fetchAll</span><span class="p">(</span><span class="nx">PDO</span><span class="o">::</span><span class="na">FETCH_ASSOC</span><span class="p">);</span>
+    <span class="nv">$memcache</span><span class="o">-&gt;</span><span class="na">set</span><span class="p">(</span><span class="nv">$cacheKey</span><span class="p">,</span><span class="nv">$results</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="nv">$results</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>除了SQL查询，还有哪些IO情形需要缓存呢？ — 当然少不了外部网络接口请求了！比如获取Google搜索结果，尽管Google服务器处理查询很快，但这个请求仍非常耗时，不但因为HTTPS连接有额外开销，更是因为（此处请自行填空）。示例代码如下：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">search_google</span><span class="p">(</span><span class="nv">$keywords</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">global</span> <span class="nv">$memcache</span><span class="p">;</span>
+  <span class="nv">$url</span><span class="o">=</span><span class="s1">&#39;https://google.com/search?q=&#39;</span><span class="o">.</span><span class="nv">$keywords</span><span class="p">;</span>
+  <span class="nv">$results</span><span class="o">=</span><span class="nv">$memcache</span><span class="o">-&gt;</span><span class="na">get</span><span class="p">(</span><span class="nv">$url</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="k">false</span><span class="o">===</span><span class="nv">$results</span><span class="p">)</span> <span class="p">{</span> <span class="c1">//缓存没有命中则发起请求</span>
+    <span class="nv">$results</span><span class="o">=</span><span class="nb">file_get_contents</span><span class="p">(</span><span class="nv">$url</span><span class="p">);</span>
+    <span class="nv">$memcache</span><span class="o">-&gt;</span><span class="na">set</span><span class="p">(</span><span class="nv">$url</span><span class="p">,</span><span class="nv">$results</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="nv">$results</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+<p>先停下来观察下前面两个典型的缓存案例代码。你会发现什么样的问题？</p>
+<ol>
+  <li>代码重复！违背了<a title="Don't repeat yourself!" href="https://en.wikipedia.org/wiki/Don't_repeat_yourself" target="_blank">DRY</a>原则。缓存是否命中的检查代码都是一样的。<br />并且，缓存检查代码与主逻辑代码混杂在一起，耦合度高，使得程序逻辑支离破碎。</li>
+  <li>不同缓存的Key都是人肉管理，很难保证Cache Key不会出现冲突。</li>
+</ol>
+<p>如何逐步解决这些问题呢？代码重复，就意味着缺少抽象！<br/>先将这些步骤抽象一下，缓存的使用一般都是这样一个流程：</p>
+<pre>
+if 缓存命中 then
+  返回缓存中的内容
+else
+  执行操作
+  将操作结果放入缓存并返回结果
+end
+</pre>
+<p>而其中“执行操作”这一步才是程序的主逻辑，而其它的都是缓存代码的逻辑。如果要避免代码重复，那就只有将程序主逻辑代码与缓存操作代码分离开来。那么我们就不得不将原来的一个函数拆分成这样两个函数：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">cache_operation</span><span class="p">()</span> <span class="p">{};</span> <span class="c1">//缓存操作代码，可重用</span>
+<span class="k">function</span> <span class="nf">action</span><span class="p">()</span> <span class="p">{};</span>     <span class="c1">//程序主体代码</span>
+<span class="c1"># 以search_google函数为例，抽取掉缓存检查代码后</span>
+<span class="c1"># 它就露出了原形 —— 我们会惊讶地发现原来主逻辑只有一行代码</span>
+<span class="k">function</span> <span class="nf">search_google</span><span class="p">(</span><span class="nv">$k</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="nb">file_get_contents</span><span class="p">(</span><span class="s1">&#39;https://google.com/search?q=&#39;</span><span class="o">.</span><span class="nv">$k</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+<p>至于如何实现先放一边。至此，我们已经清楚解决代码重复问题的方向。接下来第二个问题：如何实现缓存Key的统一管理？很明显，当然是在可重用的缓存操作函数中自动生成缓存Key了。</p>
+
+<p>那将问题抽象化之后会发现什么？之前我们还在发散思维，思索有多少种不同的缓存情形。现在我们发现，其实所有的缓存情形都可以抽象成一种情形：对执行具体操作函数的返回结果进行缓存。同时得到一个统一的、几乎万能的解决方案：将需要对结果进行缓存的操作放到一个函数中，只需对该函数调用的返回结果进行缓存就行了。而这种函数调用缓存技术有一个专门的术语：<a href="https://en.wikipedia.org/wiki/Memoization" title="Wikipedia: Memoization" target="_blank">Memoization</a>。</p>
+
+<h3>Memoization适用范围</h3>
+<p>设计良好的函数通常尽量遵循这些简单的原则：输入相同的参数总是返回相同的值（<a href="https://zh.wikipedia.org/wiki/%E5%87%BD%E6%95%B0%E5%89%AF%E4%BD%9C%E7%94%A8" target="_blank">纯函数</a>），它的返回值只受它的参数影响，不依赖于其它全局状态；没有副作用。比如一个简单的加法函数：<code class="highlight"><span class="k">function</span> <span class="nf">add</span><span class="p">(</span><span class="nv">$a</span><span class="p">,</span><span class="nv">$b</span><span class="p">)</span> <span class="p">{</span> <span class="k">return</span> <span class="nv">$a</span><span class="o">+</span><span class="nv">$b</span><span class="p">;</span> <span class="p">}</span></code>
+。这样的函数可以安全使用Memoization，因为它输入相同的参数总是返回相同的结果，所以函数名加上参数值即是一个自动生成的缓存Key。但是现实中很多和外部有数据交互的函数（IO）并不具备这样的特性，如上面的<code>query_posts</code>函数，它的返回结果由数据库中的内容决定，如果该Author有新的Article提交到数据库中，那么即使相同的 $author 参数，返回结果也不一样了。对于这样的函数，我们需要用一种变通的方案：我们可以近似地认为，包含IO的函数在同一个缓存周期内其行为一致性（即相同参数返回相同结果）是有保证的。如，我们对数据库查询允许有10分钟的缓存，那么我们就可以认为，相同的查询，在10分钟内，它可以始终只返回相同的结果。这样包含IO的函数也可以使用具有缓存过期时间的Memoization，而这类情形在真实环境中也更为常见。</p>
+
+<h3>Memoization基本实现</h3>
+<p>根据前面的分析，Memoization函数（即前面列出的要实现的<code>cache_operation</code>函数）的接口及工作方式应该是这样的：</p>
+<div class="highlight"><pre><span></span><span class="sd">/**</span>
+<span class="sd">memoize_call 将$fn函数调用的结果进行缓存</span>
+<span class="sd">@param {String} $fn 执行操作的函数名</span>
+<span class="sd">@param {Array} $args  调用$fn的参数</span>
+<span class="sd">@return $fn执行返回的结果，也可能是从缓存中取到</span>
+<span class="sd">*/</span>
+<span class="k">function</span> <span class="nf">memoize_call</span><span class="p">(</span><span class="nv">$fn</span><span class="p">,</span><span class="nv">$args</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">global</span> <span class="nv">$cache</span><span class="p">;</span>
+  <span class="c1"># 函数名和序列化的参数值构成Cache Key</span>
+  <span class="nv">$cacheKey</span><span class="o">=</span><span class="nv">$fn</span><span class="o">.</span><span class="s1">&#39;:&#39;</span><span class="o">.</span><span class="nb">serialize</span><span class="p">(</span><span class="nv">$args</span><span class="p">);</span>
+  <span class="c1"># 根据Cache Key，查询缓存</span>
+  <span class="nv">$results</span><span class="o">=</span><span class="nv">$cache</span><span class="o">-&gt;</span><span class="na">get</span><span class="p">(</span><span class="nv">$cacheKey</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="k">false</span><span class="o">===</span><span class="nv">$results</span><span class="p">)</span> <span class="p">{</span> <span class="c1"># 缓存没有命中则调用函数</span>
+    <span class="nv">$results</span><span class="o">=</span><span class="nb">call_user_func_array</span><span class="p">(</span><span class="nv">$fn</span><span class="p">,</span><span class="nv">$args</span><span class="p">);</span>
+    <span class="nv">$cache</span><span class="o">-&gt;</span><span class="na">set</span><span class="p">(</span><span class="nv">$cacheKey</span><span class="p">,</span><span class="nv">$results</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="nv">$results</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="c1"># 下面给出一个示例的Cache实现，以便使这段代码可以成功运行</span>
+<span class="k">class</span> <span class="nc">DemoCache</span> <span class="p">{</span>
+  <span class="k">private</span> <span class="nv">$db</span><span class="p">;</span>
+  <span class="k">public</span> <span class="k">function</span> <span class="fm">__construct</span><span class="p">()</span> <span class="p">{</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">db</span><span class="o">=</span><span class="k">array</span><span class="p">();}</span>
+  <span class="k">public</span> <span class="k">function</span> <span class="nf">set</span><span class="p">(</span><span class="nv">$k</span><span class="p">,</span><span class="nv">$v</span><span class="p">)</span> <span class="p">{</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">db</span><span class="p">[</span><span class="nv">$k</span><span class="p">]</span><span class="o">=</span><span class="nv">$v</span><span class="p">;}</span>
+  <span class="k">public</span> <span class="k">function</span> <span class="nf">get</span><span class="p">(</span><span class="nv">$k</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nb">array_key_exists</span><span class="p">(</span><span class="nv">$k</span><span class="p">,</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">db</span><span class="p">)</span><span class="o">?</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">db</span><span class="p">[</span><span class="nv">$k</span><span class="p">]</span><span class="o">:</span><span class="k">false</span><span class="p">;</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+<span class="nv">$cache</span><span class="o">=</span><span class="k">new</span> <span class="nx">DemoCache</span><span class="p">();</span>
+<span class="c1"># 比如对于add函数，调用方式为：</span>
+<span class="nx">memoize_call</span><span class="p">(</span><span class="s1">&#39;add&#39;</span><span class="p">,</span><span class="k">array</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">6</span><span class="p">));</span>
+</pre></div>
+<p>注意这里需要使用序列化方法<a href="http://php.net/manual/zh/function.serialize.php" target="_blank">serialize</a>函数将参数转换成String，序列化方法会严格保留值的类型信息，可以保证不同的参数序列化得到的String Key不会冲突。除了<code>serialize</code>函数，也可以考虑使用<code>json_encode</code>等方法。</p>
+
+<h3>Memoization接口人性化</h3>
+
+<p>至此我们已经实现了缓存Key的统一管理，但这个实现却给我们带来了麻烦，原本简简单单的<code>add($a,$b)</code>现在竟要写成<code>memoize_call('add',array($a,$b))</code>！这简直就是反人类！<br/>…………那该怎么解决这个问题呢？<br/>…………也许你可以这样写：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">_search_google</span><span class="p">()</span> <span class="p">{</span><span class="cm">/*BA LA BA LA*/</span><span class="p">}</span>
+<span class="k">function</span> <span class="nf">search_google</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="nx">memoize_call</span><span class="p">(</span><span class="s1">&#39;_search_google&#39;</span><span class="p">,</span><span class="nb">func_get_args</span><span class="p">());</span>
+<span class="p">}</span>
+<span class="c1">//缓存化的函数调用方式总算不再非主流了</span>
+<span class="k">echo</span> <span class="nx">search_google</span><span class="p">(</span><span class="s1">&#39;Hacker&#39;</span><span class="p">);</span> <span class="c1">//直接调用就行了</span>
+</pre></div>
+<p>至少正常一点了。但还是很麻烦啊，本来只要写一个函数的，现在要写两个函数了！这时，<a href="http://php.net/manual/zh/functions.anonymous.php" target="_blank">匿名函数</a>闪亮登场！（没错，只有在PHP5.3之后才可以使用Closure，但这关头谁还敢提更反人类的<a href="http://php.net/manual/en/function.create-function.php" target="_blank">create_function</a>？）使用Closure重写一下会变成啥样呢？</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">search_google</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="nx">memoize_call</span><span class="p">(</span><span class="k">function</span> <span class="p">()</span> <span class="p">{</span><span class="cm">/*BA LA BA LA*/</span><span class="p">},</span><span class="nb">func_get_args</span><span class="p">());</span>
+<span class="p">}</span>
+</pre></div>
+<p>还不是一样嘛！还是一堆重复的代码！程序主逻辑又被套了一层厚大衣！<br/>别忙下结论，再看看这个：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">memoized</span><span class="p">(</span><span class="nv">$fn</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="k">function</span> <span class="p">()</span> <span class="k">use</span><span class="p">(</span><span class="nv">$fn</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">memoize_call</span><span class="p">(</span><span class="nv">$fn</span><span class="p">,</span><span class="nb">func_get_args</span><span class="p">());</span>
+  <span class="p">};</span>
+<span class="p">}</span>
+<span class="k">function</span> <span class="nf">add</span><span class="p">(</span><span class="nv">$a</span><span class="p">,</span><span class="nv">$b</span><span class="p">)</span> <span class="p">{</span> <span class="k">return</span> <span class="nv">$a</span><span class="o">+</span><span class="nv">$b</span><span class="p">;</span> <span class="p">}</span>
+<span class="c1"># 生成新函数，不影响原来的函数</span>
+<span class="nv">$add</span><span class="o">=</span><span class="nx">memoized</span><span class="p">(</span><span class="s1">&#39;add&#39;</span><span class="p">);</span>
+<span class="c1"># 后面全部使用$add函数</span>
+<span class="nv">$add</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">);</span>
+</pre></div>
+<p>是不是感觉清爽多了？……还不行？<br/>
+是啊，仍然会有两个函数！但是这个真没办法，PHP的全局函数名其实是字符串常量，所以你没办法创建一个同名的新函数覆盖掉旧函数。如果是JavaScript完全可以这样写嘛：<code>add=memoized(add)</code>，如果是<a href="http://www.python.org/" target="_blank">Python</a>还可以直接用<a href="https://wiki.python.org/moin/PythonDecorators" target="_blank">Decorators</a>多方便啊！</p>
+<p>没办法，这就是PHP！</p>
+<p>……不过，我们确实还有相对更好的办法的。仍然从削减冗余代码入手！看这一行：<br/><code class="highlight"><span class="nv">$add</span><span class="o">=</span><span class="nx">memoized</span><span class="p">(</span><span class="s1">&#39;add&#39;</span><span class="p">);</span></code><br/>如果我们通过规约要求Memoized函数名的生成遵守固定的规则，那么生成新的缓存函数这个步骤就可以通过程序自动处理。比如规定所有需要Memoize的函数命名都使用<code>_memoizable</code>后缀，然后自动生成去掉后缀的新的变量函数：</p>
+<div class="highlight"><pre><span></span><span class="c1"># add函数声明时加一个后缀表示它是可缓存的</span>
+<span class="c1"># 对应自动创建的变量函数名就是$add</span>
+<span class="k">function</span> <span class="nf">add_memoizable</span><span class="p">(</span><span class="nv">$a</span><span class="p">,</span><span class="nv">$b</span><span class="p">)</span> <span class="p">{</span><span class="k">return</span> <span class="nv">$a</span><span class="o">+</span><span class="nv">$b</span><span class="p">;}</span>
+<span class="c1"># 自动发现那些具有指定后缀的函数</span>
+<span class="c1"># 并创建对应没有后缀的变量函数</span>
+<span class="k">function</span> <span class="nf">auto_create_memoized_function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="nv">$suffix</span><span class="o">=</span><span class="s1">&#39;_memoizable&#39;</span><span class="p">;</span>
+  <span class="nv">$suffixLen</span><span class="o">=</span><span class="nb">strlen</span><span class="p">(</span><span class="nv">$suffix</span><span class="p">);</span>
+  <span class="nv">$fns</span><span class="o">=</span><span class="nb">get_defined_functions</span><span class="p">();</span>
+  <span class="k">foreach</span> <span class="p">(</span><span class="nv">$fns</span><span class="p">[</span><span class="s1">&#39;user&#39;</span><span class="p">]</span> <span class="k">as</span> <span class="nv">$f</span><span class="p">)</span> <span class="p">{</span>
+    <span class="c1">//function name ends with suffix</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">substr_compare</span><span class="p">(</span><span class="nv">$f</span><span class="p">,</span><span class="nv">$suffix</span><span class="p">,</span><span class="o">-</span><span class="nv">$suffixLen</span><span class="p">)</span><span class="o">===</span><span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nv">$newFn</span><span class="o">=</span><span class="nb">substr</span><span class="p">(</span><span class="nv">$f</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="o">-</span><span class="nv">$suffixLen</span><span class="p">);</span>
+      <span class="nv">$GLOBALS</span><span class="p">[</span><span class="nv">$newFn</span><span class="p">]</span><span class="o">=</span><span class="nx">memoized</span><span class="p">(</span><span class="nv">$f</span><span class="p">);</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+<span class="c1"># 只需在所有可缓存函数声明之后添加上这个</span>
+<span class="nx">auto_create_memoized_function</span><span class="p">();</span>
+<span class="c1"># 就自动生成对应的没有后缀的变量函数了</span>
+<span class="nv">$add</span><span class="p">(</span><span class="mf">3.1415</span><span class="p">,</span><span class="mf">2.141</span><span class="p">);</span>
+</pre></div>
+
+<p>这就是<strong><a href="http://en.wikipedia.org/wiki/Convention_over_configuration">CoC（Convention over Configuration）</a></strong>的好处，帮我们省去了不少重复代码。</p>
+<p>怎么？还不满意？总觉得变量函数用起来有点别扭是吧。其实，虽然全局函数我们拿它没辙，但对象的方法调用则可以做些Hack！PHP的<a href="http://php.net/manual/zh/language.oop5.magic.php" target="_blank">魔术方法</a>提供了很多机会！</p>
+
+<h4>静态方法重载：__callStatic</h4>
+<p>Class的静态方法<a href="http://www.php.net/manual/zh/language.oop5.overloading.php#object.callstatic" target="_blank">__callStatic</a>可用于拦截对未定义静态方法的调用，该特性也是在PHP5.3开始支持。将前面的<strong><a href="http://en.wikipedia.org/wiki/Convention_over_configuration">CoC</a></strong>命名后缀方案应用到对象静态方法上，事情就变得非常简单了。将需要应用缓存的函数定义为Class静态方法，在命名时添加上后缀，调用时则不使用后缀，通过 __callStatic 方法重载，自动调用缓存方法，一切就OK了。</p>
+<div class="highlight"><pre><span></span><span class="nb">define</span><span class="p">(</span><span class="s1">&#39;MEMOIZABLE_SUFFIX&#39;</span><span class="p">,</span><span class="s1">&#39;_memoizable&#39;</span><span class="p">);</span>
+<span class="k">class</span> <span class="nc">Memoizable</span> <span class="p">{</span>
+  <span class="k">public</span> <span class="k">static</span> <span class="k">function</span> <span class="fm">__callStatic</span><span class="p">(</span><span class="nv">$name</span><span class="p">,</span><span class="nv">$args</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$realName</span><span class="o">=</span><span class="nv">$name</span><span class="o">.</span><span class="nx">MEMOIZABLE_SUFFIX</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">method_exists</span><span class="p">(</span><span class="no">__CLASS__</span><span class="p">,</span><span class="nv">$realName</span><span class="p">))</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">memoize_call</span><span class="p">(</span><span class="no">__CLASS__</span><span class="o">.</span><span class="s2">&quot;::</span><span class="si">$realName</span><span class="s2">&quot;</span><span class="p">,</span><span class="nv">$args</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nx">Exception</span><span class="p">(</span><span class="s2">&quot;Undefined method &quot;</span><span class="o">.</span><span class="no">__CLASS__</span><span class="o">.</span><span class="s2">&quot;::</span><span class="si">$name</span><span class="s2">();&quot;</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">public</span> <span class="k">static</span> <span class="k">function</span> <span class="nf">search_memoizable</span><span class="p">(</span><span class="nv">$k</span><span class="p">)</span> <span class="p">{</span><span class="k">return</span> <span class="s2">&quot;Searching:</span><span class="si">$k</span><span class="s2">&quot;</span><span class="p">;}</span>
+<span class="p">}</span>
+<span class="c1"># 调用时则不添加后缀</span>
+<span class="k">echo</span> <span class="nx">Memoizable</span><span class="o">::</span><span class="na">search</span><span class="p">(</span><span class="s1">&#39;Lisp&#39;</span><span class="p">);</span>
+</pre></div>
+
+<h4>实例方法重载：__call</h4>
+<p>同样对象实例方法也可使用这个Hack。在对象上调用一个不可访问方法时，<a href="http://www.php.net/manual/zh/language.oop5.overloading.php#object.call" target="_blank">__call</a>会被调用。对照前面 __callStatic 依样画葫芦，只要稍作改动就可得到 __call 方法：</p>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Memoizable</span> <span class="p">{</span>
+  <span class="k">public</span> <span class="k">function</span> <span class="fm">__call</span><span class="p">(</span><span class="nv">$name</span><span class="p">,</span><span class="nv">$args</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$realName</span><span class="o">=</span><span class="nv">$name</span><span class="o">.</span><span class="nx">MEMOIZABLE_SUFFIX</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">method_exists</span><span class="p">(</span><span class="nv">$this</span><span class="p">,</span><span class="nv">$realName</span><span class="p">))</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">memoize_call</span><span class="p">(</span><span class="k">array</span><span class="p">(</span><span class="nv">$this</span><span class="p">,</span><span class="nv">$realName</span><span class="p">),</span><span class="nv">$args</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="nv">$cls</span><span class="o">=</span><span class="nb">get_class</span><span class="p">(</span><span class="nv">$this</span><span class="p">);</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nx">Exception</span><span class="p">(</span><span class="s2">&quot;Undefined method &quot;</span><span class="o">.</span><span class="nv">$cls</span><span class="o">.</span><span class="s2">&quot;-&gt;</span><span class="si">$name</span><span class="s2">()&quot;</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">public</span> <span class="k">function</span> <span class="nf">add_memoizable</span><span class="p">(</span><span class="nv">$a</span><span class="p">,</span><span class="nv">$b</span><span class="p">)</span> <span class="p">{</span><span class="k">return</span> <span class="nv">$a</span><span class="o">+</span><span class="nv">$b</span><span class="p">;}</span>
+<span class="p">}</span>
+<span class="c1"># 调用实例方法时不带后缀</span>
+<span class="nv">$m</span><span class="o">=</span><span class="k">new</span> <span class="nx">Memoizable</span><span class="p">;</span>
+<span class="nv">$m</span><span class="o">-&gt;</span><span class="na">add</span><span class="p">(</span><span class="mf">3E5</span><span class="p">,</span><span class="mf">7E3</span><span class="p">);</span>
+</pre></div>
+<p>运行一下会得到一个错误，因为前面<code>memoize_call</code>函数的第一个参数只接受String类型的函数名，PHP的<a href="http://php.net/manual/en/function.call-user-func-array.php" target="_blank">call_user_func_array</a>方法本可以接受Array参数表示的一个对象方法调用，这里传了个数组： <code class="highlight"><span class="k">array</span><span class="p">(</span><span class="nv">$this</span><span class="p">,</span><span class="nv">$realName</span><span class="p">)</span></code>。如果<code>$fn</code>参数传入一个数组，生成缓存Key则成了问题。对于Class静态方法，可以使用<code>Class::staticMethod</code>格式的字符串表示，与普通函数名并无差别。对于实例方法，最简单的方式是将<code>memoize_call</code>修改成对<code>$fn</code>参数也序列化成字符串以生成缓存Key：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">memoize_call</span><span class="p">(</span><span class="nx">callable</span> <span class="nv">$fn</span><span class="p">,</span><span class="nv">$args</span><span class="p">)</span> <span class="p">{</span>
+  <span class="c1"># 函数名和参数值都进行序列化</span>
+  <span class="nv">$cacheKey</span><span class="o">=</span><span class="nb">serialize</span><span class="p">(</span><span class="nv">$fn</span><span class="p">)</span><span class="o">.</span><span class="s1">&#39;:&#39;</span><span class="o">.</span><span class="nb">serialize</span><span class="p">(</span><span class="nv">$args</span><span class="p">);</span>
+  <span class="c1">// .....</span>
+<span class="p">}</span>
+</pre></div>
+<p><small>PHP 5.4起可以使用callable参数类型提示，见：<a href="http://www.php.net/manual/zh/language.types.callable.php" target="_blank">Callable Type Hint</a>。具体格式可见 <a href="http://php.net/manual/zh/function.is-callable.php" target="_blank">is_callable</a> 函数的示例。</small></p>
+
+<p>但这样会带来一些不必要的开销。对于复杂的对象，它的被缓存方法可能只访问了它的一个属性，而直接序列化对象会将它全部属性值都序列化进Key，这样不但Key体积会变得很大，而且一旦其它不相关的属性值发生了变化，缓存也就失效了。</p>
+
+<p>对此问题的第一反应可能是……将代码改成：只序列化该方法中使用到的属性值。随之而来的障碍是，我们根本没有办法在运行时分析出方法M到底访问了<code>$this</code>的哪几个属性。对此或许我们可以手动在代码中声明方法M访问了对象哪几个属性，可以在类中静态声明一张表存放相关信息。或者本着Hack到底（分明是折腾到底）的精神，为了能自动获取方法访问过哪些属性，我们还可以依葫芦画瓢，参照前面Memoizable方法调用拦截，再搞出这样一个 CoC 方案：属性定义时也都添加上<code>_memoizable</code>后缀，访问时则不带后缀，通过<a href="http://www.php.net/manual/en/language.oop5.overloading.php#object.get" target="_blank">__get</a>方法，我们就可以在方法执行完后，得到这一次该方法访问过的属性列表了（但Memoize不是需要在函数调用之前就得确定缓存Key么？这样才能查看缓存是否命中以决定是否要执行该方法啊？这个简单，对方法M访问了对象哪些属性也进行缓存，就不用每次都执行了）。</p>
+
+<p>不过，<strong>Stop！</strong>我们不能真的这么干！这样会把事情搞得越来越复杂。<cite title="难不成反是全世界都在错误的道路上越走越远？">我们不能在错误的道路上越走越远！</cite>有些问题我们应该让它消失掉而不是去解决掉。我们应避免对实例方法进行缓存，因为实例方法通常都不是纯函数，它依赖于<code>$this</code>的状态，因此它也不适用于Memoization，依赖于全局变量的函数也是如此。
+通常情况下对静态方法缓存已经够用了，如果实例方法需要缓存，可以考虑重构代码提取出一个可缓存的纯函数出来。</p>
+<h6>重载方法可重用化</h6>
+<p>如果要将这里的<code>__callStatic</code>及<code>__call</code> 代码重用，可将其作为一个BaseClass，让需要Memoize功能的子类去继承：</p>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">ArticleModel</span> <span class="k">extends</span> <span class="nx">Memoizable</span> <span class="p">{</span>
+  <span class="k">public</span> <span class="k">static</span> <span class="k">function</span> <span class="nf">getByAuthor_memoizable</span><span class="p">()</span> <span class="p">{</span><span class="cm">/*...*/</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+<p>试一下，便会发现这样是行不通的。在<code>__callStatic</code>中，我们直接使用了<a href="http://php.net/manual/en/language.constants.predefined.php" target="_blank">Magic Constants</a>：<code>__CLASS__</code>，来得到当前类名。但这个变量的值是它在代码中所在的类的名称，而不是运行时调用此方法的类的名称。即这里的<code>__CLASS__</code>的值永远是<code>Memoizable</code>。这问题并不很难解决，只要升级到PHP5.3，将<code>__CLASS__</code>替换成<code><a href="http://php.net/manual/en/function.get-called-class.php" target="_blank">get_called_class()</a></code>就行了。然而还有另外一个问题，PHP的Class是不支持多继承的，如果一个类已经继承了另外一个类，就不好再使用继承的方式实现Memoize代码重用了。这问题仍然不难解决，只要升级到PHP5.4，使用<a href="http://php.net/manual/zh/language.oop5.traits.php" target="_blank">Traits</a>就可以实现Mixin了。并且，使用 <strong>Traits</strong> 之后，就可以<a href="http://php.net/manual/zh/language.oop5.traits.php#106958" target="_blank">直接使用__CLASS__常量</a>而不需要改成调用<code>get_called_class()</code>函数了，真是一举两得：</p>
+<div class="highlight"><pre><span></span><span class="k">trait</span> <span class="nx">Memoizable</span> <span class="p">{</span>
+  <span class="k">public</span> <span class="k">static</span> <span class="k">function</span> <span class="fm">__callStatic</span><span class="p">()</span> <span class="p">{</span>
+    <span class="k">echo</span> <span class="no">__CLASS__</span><span class="p">;</span> <span class="c1"># =&gt; 输出use trait的那个CLASS名称</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+<span class="k">class</span> <span class="nc">ArticleModel</span> <span class="p">{</span>
+  <span class="k">use</span> <span class="nx">Memoizable</span><span class="p">;</span>
+  <span class="k">public</span> <span class="k">static</span> <span class="k">function</span> <span class="nf">getByAuthor_memoizable</span><span class="p">()</span> <span class="p">{</span><span class="cm">/*...*/</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+<p>只是你需要升级到PHP5.4。也许有一天一个新的PHP版本会支持<a href="http://www.python.org/" target="_blank">Python</a>那样的<strong><a href="https://wiki.python.org/moin/PythonDecorators" target="_blank">Decorators</a></strong>吧，不过那时估计我已不再关注PHP，更不会回来更新这篇文章的内容了。</p>
+
+<h3>缓存过期时间</h3>
+<p>前面讲到，在现实世界中，通常都是对IO操作进行缓存，而包含IO操作的函数都不是纯函数。纯函数的缓存可以永不过期，而IO操作都需要一个缓存过期时间。现在问题不是过期时间到底设置成多长，这个问题应该交给每个不同的函数去设定，因为不同的操作其缓存时长是不一样的。现在的问题是，我们已经将缓存函数抽取了出来，让函数代码自身无需关心具体的缓存操作。可现在又要自己设置缓存过期时长，需要向这个<code>memoize_call</code>函数传递一个<code>$expires</code>参数，以在<code>$cache->set</code>时再传给MemCache实例。初级解决方案：类中所有方法的缓存过期时长，可以用一个<code>Class::methodMemoizeExpires</code>数组来配置映射。不过，我们不能一直这样停留在初级阶段百年不变！设想中最好的方案当然是将缓存过期时长和方法代码放一起，分开来写肯定不利于维护。可如何实现呢？前面已经将PHP的魔术方法差不多都用遍了，现在必须换个招术了。一直被遗忘在角落里的<a href="http://php.net/manual/zh/language.variables.scope.php#language.variables.scope.static" target="_blank">静态变量</a>和<a href="http://php.net/manual/zh/book.reflection.php" target="_blank">反射机制</a>，终于也能派上用场了！</p>
+<p>缓存过期时间，声明成函数的一个静态变量：</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">search_google_memoizable</span><span class="p">(</span><span class="nv">$keywords</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">static</span> <span class="nv">$memoizeExpires</span><span class="o">=</span><span class="mi">600</span><span class="p">;</span><span class="c1">//单位：秒</span>
+<span class="p">}</span>
+</pre></div>
+<p>通过<a href="http://www.php.net/manual/zh/class.reflectionfunction.php" target="_blank">ReflectionFunction</a>的<a href="http://www.php.net/manual/en/reflectionfunctionabstract.getstaticvariables.php" target="_blank">getStaticVariables</a>方法，即可获取到函数设置的<code>$memoizeExpires</code>值：</p>
+<div class="highlight"><pre><span></span><span class="nv">$rf</span><span class="o">=</span><span class="k">new</span> <span class="nx">ReflectionFunction</span><span class="p">(</span><span class="s1">&#39;search_google_memoizable&#39;</span><span class="p">);</span>
+<span class="nv">$staticVars</span><span class="o">=</span><span class="nv">$rf</span><span class="o">-&gt;</span><span class="na">getStaticVariables</span><span class="p">();</span>
+<span class="nv">$expires</span><span class="o">=</span><span class="nv">$staticVars</span><span class="p">[</span><span class="s1">&#39;memoizeExpires&#39;</span><span class="p">];</span>
+</pre></div>
+
+<p>举一反三，类静态方法及实例方法，都可以通过<a href="http://php.net/manual/zh/book.reflection.php" target="_blank">ReflectionClass</a>、<a href="http://www.php.net/manual/zh/class.reflectionmethod.php" target="_blank">ReflectionMethod</a>这些途径获取到静态变量的值。</p>
+
+
+<h3>通过PHP C Extension实现Memoize</h3>
+<p>前面讨论了那么多，大部分的篇幅都是在讨论如何让缓存化函数的调用方式更优雅，尽量和普通调用保持一致。
+筋疲力竭之后又突然想起来，虽然PHP代码中无法覆盖一个已经定义的函数，但PHP C Extension则可以做到！正好，PECL上已经有一个C实现的Memoize模块，不过目前仍然是Beta版。可以通过下面的命令安装：</p>
+<pre class="terminal">
+sudo pecl install memoize-beta
+</pre>
+<p>
+该模块工作方式正如前面PHP代码所想要实现却又实现不了的那样。它提供一个<code>memoize</code>函数，将一个用户定义的函数修改成一个缓存化函数。主要步骤和前面的PHP实现方案并无二致，本质上是通过<code>memoize("fn")</code>创建一个新的函数（类似前面PHP实现的<code>memoized</code>），新的函数执行<code>memoize_call</code>在缓存不命中时再调用原来的函数，只不过C扩展可以修改函数表，将旧的函数重命名成<code>fn$memoizd</code>，将新创建的函数命名成<code>fn</code>并覆盖用户定义的函数：
+</p>
+<div class="highlight"><pre><span></span><span class="k">function</span> <span class="nf">hack</span><span class="p">(</span><span class="nv">$x</span><span class="p">)</span> <span class="p">{</span><span class="nb">sleep</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span><span class="k">return</span> <span class="s2">&quot;Hack </span><span class="si">$x\n</span><span class="s2">&quot;</span><span class="p">;}</span>
+<span class="nx">memoize</span><span class="p">(</span><span class="s1">&#39;hack&#39;</span><span class="p">);</span>
+<span class="k">echo</span> <span class="nx">hack</span><span class="p">(</span><span class="s1">&#39;PHP&#39;</span><span class="p">);</span> <span class="c1"># returns in 3s</span>
+<span class="k">echo</span> <span class="nx">hack</span><span class="p">(</span><span class="s1">&#39;PHP&#39;</span><span class="p">);</span> <span class="c1"># returns in 0.0001s</span>
+<span class="nv">$fns</span><span class="o">=</span><span class="nb">get_defined_functions</span><span class="p">();</span>
+<span class="k">echo</span> <span class="nb">implode</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span><span class="nv">$fns</span><span class="p">[</span><span class="s1">&#39;user&#39;</span><span class="p">]);</span> <span class="c1"># =&gt; hack$memoizd</span>
+<span class="c1"># 函数hack现在变成internal了</span>
+<span class="nb">var_dump</span><span class="p">(</span><span class="nb">in_array</span><span class="p">(</span><span class="s1">&#39;hack&#39;</span><span class="p">,</span><span class="nv">$fns</span><span class="p">[</span><span class="s1">&#39;internal&#39;</span><span class="p">]));</span> <span class="c1"># =&gt; bool(true)</span>
+</pre></div>
+<p>由于新函数是<code>memcpy</code>其内置函数<code>memoize_call</code>，所以变成了internal。</p>
+<p>分析下<code>memoize</code>函数部分C代码可见基本逻辑和前面PHP实现是一样的：</p>
+<div class="highlight"><pre><span></span><span class="n">PHP_FUNCTION</span><span class="p">(</span><span class="n">memoize</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="n">zval</span> <span class="o">*</span><span class="n">callable</span><span class="p">;</span>
+  <span class="cm">/*...*/</span>
+  <span class="n">zend_function</span> <span class="o">*</span><span class="n">fe</span><span class="p">,</span> <span class="o">*</span><span class="n">dfe</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">new_dfe</span><span class="p">;</span>
+  <span class="cm">/*默认为全局函数表，EG宏获取当前的executor_globals*/</span>
+  <span class="n">HashTable</span> <span class="o">*</span><span class="n">function_table</span> <span class="o">=</span> <span class="n">EG</span><span class="p">(</span><span class="n">function_table</span><span class="p">);</span>
+  <span class="cm">/*...*/</span>
+  <span class="cm">/*检查第一个参数是否is_callable*/</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">Z_TYPE_P</span><span class="p">(</span><span class="n">callable</span><span class="p">)</span> <span class="o">==</span> <span class="n">IS_ARRAY</span><span class="p">)</span> <span class="p">{</span>
+    <span class="cm">/*callable是数组则可能为类静态方法或对象实例方法*/</span>
+    <span class="n">zval</span> <span class="o">**</span><span class="n">fname_zv</span><span class="p">,</span> <span class="o">**</span><span class="n">obj_zv</span><span class="p">;</span>
+    <span class="cm">/*省略：obj_zv=callable[0],fname_zv=callable[1]*/</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">obj_zv</span> <span class="o">&amp;&amp;</span> <span class="n">fname_zv</span> <span class="o">&amp;&amp;</span>
+        <span class="p">(</span><span class="n">Z_TYPE_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">)</span><span class="o">==</span><span class="n">IS_OBJECT</span> <span class="o">||</span> <span class="n">Z_TYPE_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">)</span><span class="o">==</span><span class="n">IS_STRING</span><span class="p">)</span> <span class="o">&amp;&amp;</span>
+         <span class="n">Z_TYPE_PP</span><span class="p">(</span><span class="n">fname_zv</span><span class="p">)</span><span class="o">==</span><span class="n">IS_STRING</span><span class="p">)</span> <span class="p">{</span>
+      <span class="cm">/* looks like a valid callback */</span>
+      <span class="n">zend_class_entry</span> <span class="o">*</span><span class="n">ce</span><span class="p">,</span> <span class="o">**</span><span class="n">pce</span><span class="p">;</span>
+      <span class="k">if</span> <span class="p">(</span><span class="n">Z_TYPE_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">)</span><span class="o">==</span><span class="n">IS_OBJECT</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*obj_zv是对象*/</span>
+        <span class="cm">/*获取对象的class entry，见zend_get_class_entry*/</span>
+        <span class="n">ce</span> <span class="o">=</span> <span class="n">Z_OBJCE_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">);</span>
+      <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">Z_TYPE_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">)</span><span class="o">==</span><span class="n">IS_STRING</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*obj_zv为string则是类名*/</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">zend_lookup_class</span><span class="p">(</span><span class="n">Z_STRVAL_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">),</span>
+          <span class="n">Z_STRLEN_PP</span><span class="p">(</span><span class="n">obj_zv</span><span class="p">),</span><span class="o">&amp;</span><span class="n">pce</span> <span class="n">TSRMLS_CC</span><span class="p">)</span><span class="o">==</span><span class="n">FAILURE</span><span class="p">){</span><span class="cm">/*...*/</span><span class="p">}</span>
+        <span class="n">ce</span> <span class="o">=</span> <span class="o">*</span><span class="n">pce</span><span class="p">;</span>
+      <span class="p">}</span>
+      <span class="cm">/*当callable为array时，则使用该Class的函数表*/</span>
+      <span class="n">function_table</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">ce</span><span class="o">-&gt;</span><span class="n">function_table</span><span class="p">;</span>
+      <span class="cm">/*PHP中函数名不区分大小写，所以这里全转成小写*/</span>
+      <span class="n">fname</span> <span class="o">=</span> <span class="n">zend_str_tolower_dup</span><span class="p">(</span><span class="n">Z_STRVAL_PP</span><span class="p">(</span><span class="n">fname_zv</span><span class="p">),</span><span class="n">Z_STRLEN_PP</span><span class="p">(</span><span class="n">fname_zv</span><span class="p">));</span>
+      <span class="n">fname_len</span> <span class="o">=</span> <span class="n">Z_STRLEN_PP</span><span class="p">(</span><span class="n">fname_zv</span><span class="p">);</span>
+      <span class="cm">/*检查方法是否存在*/</span>
+      <span class="k">if</span> <span class="p">(</span><span class="n">zend_hash_exists</span><span class="p">(</span><span class="n">function_table</span><span class="p">,</span><span class="n">fname</span><span class="p">,</span><span class="n">fname_len</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">==</span><span class="n">FAILURE</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*RET FALSE*/</span><span class="p">}</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span><span class="cm">/*RET FALSE*/</span><span class="p">}</span>
+  <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">Z_TYPE_P</span><span class="p">(</span><span class="n">callable</span><span class="p">)</span> <span class="o">==</span> <span class="n">IS_STRING</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*普通全局函数，省略*/</span>
+  <span class="p">}</span> <span class="k">else</span> <span class="p">{</span><span class="cm">/*RET FALSE*/</span><span class="p">}</span>
+  <span class="cm">/* find source function */</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">zend_hash_find</span><span class="p">(</span><span class="n">function_table</span><span class="p">,</span><span class="n">fname</span><span class="p">,</span><span class="n">fname_len</span><span class="o">+</span><span class="mi">1</span><span class="p">,(</span><span class="kt">void</span><span class="o">**</span><span class="p">)</span><span class="o">&amp;</span><span class="n">fe</span><span class="p">)</span><span class="o">==</span><span class="n">FAILURE</span><span class="p">){</span><span class="cm">/*..*/</span><span class="p">}</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">MEMOIZE_IS_HANDLER</span><span class="p">(</span><span class="n">fe</span><span class="p">))</span> <span class="p">{</span><span class="cm">/*已经被memoize缓存化过了，RET FALSE*/</span><span class="p">}</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">MEMOIZE_RETURNS_REFERENCE</span><span class="p">(</span><span class="n">fe</span><span class="p">))</span> <span class="p">{</span><span class="cm">/*不接受返回引用的函数，RET FALSE*/</span><span class="p">}</span>
+  <span class="n">func</span> <span class="o">=</span> <span class="o">*</span><span class="n">fe</span><span class="p">;</span>
+  <span class="n">function_add_ref</span><span class="p">(</span><span class="o">&amp;</span><span class="n">func</span><span class="p">);</span>
+  <span class="cm">/* find dest function，dfe=memoize_call */</span>
+  <span class="cm">/* copy dest entry with source name */</span>
+  <span class="n">new_dfe</span> <span class="o">=</span> <span class="n">emalloc</span><span class="p">(</span><span class="k">sizeof</span><span class="p">(</span><span class="n">zend_function</span><span class="p">));</span>
+  <span class="cm">/*从memoize_call函数复制出一个新函数，memoize_call本身是internal的*/</span>
+  <span class="cm">/*其实可以通过new_def-&gt;type=ZEND_USER_FUNCTION将其设置成用户函数*/</span>
+  <span class="n">memcpy</span><span class="p">(</span><span class="n">new_dfe</span><span class="p">,</span> <span class="n">dfe</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">zend_function</span><span class="p">));</span>
+  <span class="cm">/*将复制出的memoize_call函数的scope设置成原函数的scope*/</span>
+  <span class="n">new_dfe</span><span class="o">-&gt;</span><span class="n">common</span><span class="p">.</span><span class="n">scope</span> <span class="o">=</span> <span class="n">fe</span><span class="o">-&gt;</span><span class="n">common</span><span class="p">.</span><span class="n">scope</span><span class="p">;</span>
+  <span class="cm">/*将新函数名称设置成和原函数相同*/</span>
+  <span class="n">new_dfe</span><span class="o">-&gt;</span><span class="n">common</span><span class="p">.</span><span class="n">function_name</span> <span class="o">=</span> <span class="n">fe</span><span class="o">-&gt;</span><span class="n">common</span><span class="p">.</span><span class="n">function_name</span><span class="p">;</span>
+  <span class="cm">/*修改function_table，将原函数名映射到新函数new_dfe*/</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">zend_hash_update</span><span class="p">(</span><span class="n">function_table</span><span class="p">,</span><span class="n">fname</span><span class="p">,</span>
+      <span class="n">fname_len</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">new_dfe</span><span class="p">,</span><span class="k">sizeof</span><span class="p">(</span><span class="n">zend_function</span><span class="p">),</span><span class="nb">NULL</span><span class="p">)</span><span class="o">==</span><span class="n">FAILURE</span><span class="p">){</span><span class="cm">/*..*/</span><span class="p">}</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">func</span><span class="p">.</span><span class="n">type</span> <span class="o">==</span> <span class="n">ZEND_INTERNAL_FUNCTION</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*省略对internal函数的特殊处理*/</span><span class="p">}</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">ttl</span><span class="p">)</span> <span class="p">{</span><span class="cm">/*省略ttl设置*/</span><span class="p">}</span>
+  <span class="cm">/*原函数重命名成 fname$memoizd并添加到函数表*/</span>
+  <span class="n">new_fname_len</span> <span class="o">=</span> <span class="n">spprintf</span><span class="p">(</span><span class="o">&amp;</span><span class="n">new_fname</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&quot;%s%s&quot;</span><span class="p">,</span> <span class="n">fname</span><span class="p">,</span> <span class="n">MEMOIZE_FUNC_SUFFIX</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">zend_hash_add</span><span class="p">(</span><span class="n">function_table</span><span class="p">,</span><span class="n">new_fname</span><span class="p">,</span>
+      <span class="n">new_fname_len</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="o">&amp;</span><span class="n">func</span><span class="p">,</span><span class="k">sizeof</span><span class="p">(</span><span class="n">zend_function</span><span class="p">),</span><span class="nb">NULL</span><span class="p">)</span><span class="o">==</span><span class="n">FAILURE</span><span class="p">){</span><span class="cm">/*RET FALSE*/</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+<p>其<code>memoize_call</code>函数是不可以直接调用的，它只专门用来被复制以生成新函数的，其执行时通过自己的函数名找到对应要执行的原函数，并且同样使用<code>serialize</code>方法序列化参数，并取序列化结果字符串的MD5值作为缓存Key。</p>
+
+<p>如<a href="http://lxr.php.net/xref/PHP_5_3/Zend/zend_API.c#227" target="_blank">zend_get_class_entry</a>、<a href="http://lxr.php.net/xref/PHP_5_3/Zend/zend_compile.h#267" target="_blank">zend_function</a>等Zend API函数的源码均可通过<a href="http://lxr.php.net/" target="_blank">http://lxr.php.net/</a>在线搜索浏览。另可参考：<a href="http://www.php-internals.com/book/?p=chapt04/04-01-01-function-struct" target="_blank">深入理解PHP内核 — PHP函数内部实现</a>。</p>
+
+
+<p>其它参见Github上的源码和文档：<a href="https://github.com/arraypad/php-memoize" target="_blank">https://github.com/arraypad/php-memoize</a></p>
+
+
+<h3>最后</h3>
+<p>完整的<strong>PHP Memoization</strong>实现参见：<br /><a href="https://github.com/CJex/anthology/tree/master/php/Memoize" target="_blank">https://github.com/CJex/anthology/tree/master/php/Memoize</a></p>
+<p>该实现覆盖了很多其它的边缘问题。比如通过<em>Reflection API</em>，实现了将方法参数默认值也序列化到缓存Key的功能。不过该实现现在只支持PHP5.4以后的版本。</p>
+    
+  </article>
+  <hr />
+  
+    <nav class="near-posts link-list">
+    
+            <a href="./linux-assembly-command-line-arguments-stack-layout.html" rel="next"><i>⇦</i><em>Linux命令行参数在栈中的分配</em></a>
+        
+        
+            <a href="./json-eval-trick-in-php.html" rel="prev" class="prev"><i>⇨</i><em>JSON Eval Trick in PHP</em></a>
+        
+    </nav>
+    <hr />
+  
+
+  
+    <div id="disqus_thread"></div>
+    <script type="text/javascript">
+        var disqus_shortname = "jexim";
+        var disqus_config = function () {
+          this.page.url = "https://jex.im/./memoization-in-php.html";
+          this.page.identifier = "programming/memoization-in-php";
+          this.page.category_id = "programming";
+          this.page.title = "Memoization in PHP";
+        };
+
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = 'https://' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+  
+
+
+<!-- Build: 2019-07-14 13:22:43 +0800 -->
+  <footer class="site-footer">
+      <a rel="license"
+      title="This blog is licensed under a Creative Commons Attribution-ShareAlike 3.0 Unported License."
+      href="https://creativecommons.org/licenses/by-sa/3.0/deed.zh" target="_blank"><!--img alt="知识共享许可协议" src="https://i.creativecommons.org/l/by-sa/3.0/80x15.png" width="80" height="14" /--><img width="80" height="15" title="知识共享许可协议" alt="知识共享许可协议" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAPCAIAAAD8q9/YAAAABGdBTUEAANbY1E9YMgAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAAIySURBVHjaYmAYYYARiP///z9SfMvIyAJhrdm0Glliz669M6fO7OjoKC8vx9Tm6up66tSptu5WcQlxIFdeVsHVyfXjh4+D3LeQeGXClHj54uXyxctx+RYIdu/ebWZmNrl/CoT74eOHwoLCoRLJWDy8fMkKYWFhXL6FAGBw3Lxxc8PajUD2x08fPHw8vH28h6qHL128lJ6eDmScPXtWWVkZmO6Bafj9+/dAEsgGigDFjY2NXVxcrl29BjWFiQnIRUs/EICcnDDZ+LXQonBhwvDt5c+fPgP9A2SHhYUBGUBbgWRnZyfQn+/evQPG/L1794CyQME7t+/AUzUwkWOWEEAAcTScASSBbKy+ZYQBZC7V/Yzu4a9fvgBJQUFBYJQCPQbxOTABA9lKSkpA8bS0tNDQUFgRD3X6z58/GFkYscYY3HsQ18O5aPEJkUVLCPSIYW4eHiAJ9C3Qb0AfAmMVUiwDuUA/A8UrKipmzZqFljjZ2Tn+//mPJ4ax1hDw+MSqHk2WVh7W09fl5eWF+BMYsXv27AHaCvQ5kA2MbSEhIaAIJLueOXNGUVkRokuAXwBYUeGPYYJ1BknqKW14INfDfV39z58+v3//Ph5twBAxMTGJjosOCPYHcmWl5Zobmrdu2TrI62FgaGIppaPjot6+fQOMUjyay8rKVFSVIb7l5xPYsWXHIPctvmoJ2H5KzUytrKxsb2/HqsfJ2en69esFJQXw9Nw/oX+0LT1I29IjrbPEABBgAEdwNeO7yfOaAAAAAElFTkSuQmCC" /></a>
+      <small>
+        Powered by <a href="https://jex.im/PlainSite/" target="_blank">PlainSite</a>.
+      </small>
+  </footer>
+</body>
+</html>

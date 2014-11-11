@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+<title>指令对齐性能影响初探</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="指令对齐性能影响初探" />
+<link rel="stylesheet" type="text/css" href="../css/style.css" />
+<link rel="alternate" type="application/rss+xml" title="I'm Jex" href="../rss.xml"/>
+<link rel="shortcut icon" href="../favicon.png" type="image/png" />
+</head>
+<body>
+  <nav class="category-path">
+   <a href="../index.html" rel="home">Home</a> »
+    
+    <a href="../programming/index.html" rel="category">Programming</a> »
+    
+    <em>指令对齐性能影响初探</em>
+</nav>
+
+  <h1 class="article-title">
+    <a href="./instruction-align-perf.html" rel="self" class="normal">指令对齐性能影响初探</a>
+  </h1>
+  <div class="title-info">
+    <small><a href="https://jex.im/" rel="author" class="normal">Jex</a> — <time>2014-03-01</time></small>
+  </div>
+
+
+  
+  <article  id="main">
+    <p>一次遇到有人问了这样一个问题：为什么下面代码运行结果显示IF判断比乘法运算慢？</p>
+<div class="center">
+<div class="highlight"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;time.h&gt;</span><span class="cp"></span>
+<span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp"></span>
+<span class="cp">#define LOOP_TIMES 1000000000</span>
+<span class="kt">void</span> <span class="nf">mu_loop</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">clock_t</span> <span class="n">start</span><span class="p">,</span><span class="n">end</span><span class="p">;</span>
+  <span class="n">start</span><span class="o">=</span><span class="n">clock</span><span class="p">();</span>
+  <span class="kt">int</span> <span class="n">a</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span><span class="n">b</span><span class="o">=</span><span class="mi">13</span><span class="p">,</span><span class="n">c</span><span class="o">=</span><span class="mi">23</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">duration</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">n</span><span class="o">=</span><span class="n">LOOP_TIMES</span><span class="p">;</span>
+  <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="n">i</span><span class="o">&lt;</span><span class="n">n</span><span class="p">;</span><span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span><span class="n">c</span><span class="o">=</span><span class="n">a</span><span class="o">*</span><span class="n">b</span><span class="p">;}</span>
+  <span class="n">end</span><span class="o">=</span><span class="n">clock</span><span class="p">();</span>
+  <span class="n">duration</span><span class="o">=</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
+  <span class="n">printf</span><span class="p">(</span> <span class="s">&quot;mu_loop:%d</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="kt">void</span> <span class="nf">if_loop</span><span class="p">(</span><span class="kt">void</span><span class="p">){</span>
+  <span class="kt">clock_t</span> <span class="n">start</span><span class="p">,</span><span class="n">end</span><span class="p">;</span>
+  <span class="n">start</span><span class="o">=</span><span class="n">clock</span><span class="p">();</span>
+  <span class="kt">int</span> <span class="n">duration</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">flag</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span><span class="n">n</span><span class="o">=</span><span class="n">LOOP_TIMES</span><span class="p">;</span>
+  <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="n">i</span><span class="o">&lt;</span><span class="n">n</span><span class="p">;</span><span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span><span class="k">if</span><span class="p">(</span><span class="n">flag</span><span class="p">)</span> <span class="p">{}}</span>
+  <span class="n">end</span><span class="o">=</span><span class="n">clock</span><span class="p">();</span>
+  <span class="n">duration</span><span class="o">=</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
+  <span class="n">printf</span><span class="p">(</span> <span class="s">&quot;if_loop:%d</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="n">main</span><span class="p">()</span> <span class="p">{</span> <span class="n">if_loop</span><span class="p">();</span> <span class="n">mu_loop</span><span class="p">();</span> <span class="p">}</span>
+<span class="cm">/* Output:</span>
+<span class="cm">   if_loop:3219911</span>
+<span class="cm">   mu_loop:2776099  */</span>
+</pre></div>
+</div>
+
+<p>这不太符合常识，理论上乘法运算<code>IMUL</code>指令比IF判断<code>CMP/TEST</code>指令要慢才对。
+因此围观群众都不大相信，纷纷在自己机器上将代码编译运行一遍，结果发现明明是乘法慢，遂质疑是不是提问者编译代码时的姿势不对，要么就是机器有问题。或有人认为这样的代码并不能准确测试出不同指令的速度，也有人认为可能是其使用的编译器作了<a href="http://en.wikipedia.org/wiki/Constant_folding" target="_blank">Constant Folding</a>优化，也有人认为是IF语句造成了CPU分支预测失败或Stall导致速度更慢，也有人认为是CPU将Independent <code>IMUL</code>指令高度并行化所以更快，众说纷纭。于是我也好奇测试了一下，在我的 Linux IA32 机器上使用 GCC <code>-O0</code>选项编译，结果真的是包含乘法运算的循环更快。更为诡异的是，如果我将源码中<code>if_loop</code>与<code>mu_loop</code>两个函数的先后顺序颠倒一下，运行结果又显示好像IF判断更快了。很神奇吧？这是为什么呢？其实前面都没猜中，至于真正的原因嘛，先不下结论，虽然至此已经能猜到个大概，可离确证还是有一段路要走的。</p>
+
+<h2>定位问题</h2>
+<p>循环的性能会受多方因素影响，直觉上可以断定，肯定是编译生成的循环指令有问题，但得先排除其它的可能。首先我们没有必要再去单独测试<code>IMUL</code>指令和<code>CMP/TEST</code>指令哪个更快，CPU厂商给的指令手册是最权威的解释，片面的实验反而会隐藏真相，原题给出的代码即是一例。其次需要排除编译器优化的影响，这很简单，直接<code class="sh">gcc -O0 -S</code>输出汇编代码就能看到真相。这里我只截取部分关键代码：</p>
+<div class="center">
+<div class="highlight"><pre><span></span><span class="nl">mu_loop:</span>
+  <span class="c"># .......</span>
+  <span class="nf">movl</span>  <span class="no">$7</span><span class="p">,</span> <span class="p">-</span><span class="mi">20</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>  <span class="c"># a=7</span>
+  <span class="no">movl</span>  <span class="no">$13</span><span class="p">,</span> <span class="p">-</span><span class="mi">24</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span> <span class="c"># b=13</span>
+  <span class="no">movl</span>  <span class="no">$23</span><span class="p">,</span> <span class="p">-</span><span class="mi">28</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span> <span class="c"># c=23</span>
+  <span class="no">movl</span>  <span class="no">$1000000000</span><span class="p">,</span> <span class="p">-</span><span class="mi">32</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>
+  <span class="nf">movl</span>  <span class="no">$0</span><span class="p">,</span> <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span> <span class="c"># i=0</span>
+  <span class="no">jmp</span> <span class="no">.L2</span>
+<span class="nl">.L3:</span> <span class="c"># 这里是循环体，可以看到乘法并没被优化掉</span>
+  <span class="nf">movl</span>  <span class="p">-</span><span class="mi">20</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span> <span class="c"># a</span>
+  <span class="no">imull</span> <span class="p">-</span><span class="mi">24</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span> <span class="c"># a*b</span>
+  <span class="no">movl</span>  <span class="nv">%eax</span><span class="p">,</span> <span class="p">-</span><span class="mi">28</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span> <span class="c"># c=a*b</span>
+  <span class="no">addl</span>  <span class="no">$1</span><span class="p">,</span> <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>   <span class="c"># i++</span>
+<span class="no">.L2</span><span class="p">:</span>
+  <span class="nf">movl</span>  <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span>
+  <span class="nf">cmpl</span>  <span class="p">-</span><span class="mi">32</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span>
+  <span class="nf">jl</span>  <span class="no">.L3</span> <span class="c"># Jump when i less than n</span>
+
+<span class="nl">if_loop:</span>
+  <span class="nf">movl</span>  <span class="no">$0</span><span class="p">,</span> <span class="p">-</span><span class="mi">20</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>  <span class="c"># flag=0</span>
+  <span class="no">movl</span>  <span class="no">$1000000000</span><span class="p">,</span> <span class="p">-</span><span class="mi">24</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>
+  <span class="nf">movl</span>  <span class="no">$0</span><span class="p">,</span> <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>  <span class="c"># i=0</span>
+  <span class="no">jmp</span> <span class="no">.L5</span>
+<span class="nl">.L6:</span> <span class="c"># 这里是循环体，并没有IF判断相应的指令</span>
+  <span class="nf">addl</span>  <span class="no">$1</span><span class="p">,</span> <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">)</span>  <span class="c"># i++</span>
+<span class="no">.L5</span><span class="p">:</span>
+  <span class="nf">movl</span>  <span class="p">-</span><span class="mi">12</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span>
+  <span class="nf">cmpl</span>  <span class="p">-</span><span class="mi">24</span><span class="p">(</span><span class="nv">%ebp</span><span class="p">),</span> <span class="nv">%eax</span> <span class="c"># compare i,n</span>
+  <span class="no">jl</span>  <span class="no">.L6</span>
+</pre></div>
+</div>
+<p>好了，实打实的汇编，做乘法的<code>imull</code>指令就在循环体内，没有被Constant Folding优化掉，保证没有作弊。
+并且我们还发现<code>if_loop</code>函数中的循环体是空的，GCC即使在关闭优化选项的情况下，仍然会移除 Body 为空的 IF 语句。于是前面几种猜测都可以排除：没有优化掉乘法运算，没有IF干扰分支预测，原本Intel手册中<code>IMUL</code>指令的 Latency 和 Throughput 就不及<code>CMP/TEST</code>指令，现在连IF判断也没有了，这下情况就变成了：包含乘法运算的循环竟然比空循环更快！？这就变得更不可思议了。如何让运行结果正常呢？回到汇编代码<code>if_loop</code>函数的<code>.L6</code>标签前面，即循环体指令前面，我在那个地方尝试性地添了4个<code>nop</code>指令，执行结果就又正常了，说明运行速度跟指令的地址有关——难道就是传说中的<strong>指令对齐</strong>？</p>
+
+<h2>指令对齐</h2>
+<p>为什么指令对齐会影响到程序性能？下面是<a href="http://www.agner.org/optimize/" target="_blank">《Optimizing Assembly》</a>中的解释：</p>
+
+<blockquote>
+<h6>11.5 Alignment of code</h6>
+Most microprocessors fetch code in aligned 16-byte or 32-byte blocks. If an important
+subroutine entry or jump label happens to be near the end of a 16-byte block then the
+microprocessor will only get a few useful bytes of code when fetching that block of code. It
+may have to fetch the next 16 bytes too before it can decode the first instructions after the
+label. This can be avoided by aligning important subroutine entries and loop entries by 16.
+Aligning by 8 will assure that at least 8 bytes of code can be loaded with the first instruction
+fetch, which may be sufficient if the instructions are small. We may align subroutine entries
+by the cache line size (typically 64 bytes) if the subroutine is part of a critical hot spot and
+the preceding code is unlikely to be executed in the same context.
+</blockquote>
+
+<p>按此说法，如果循环体指令没有按照 FetchBlockSize 对齐，那么就有可能循环体中的指令需要多次 Fetch 才能执行，循环次数过大就会看到性能差异。前面将两个函数在源码中颠倒次序、以及在循环体指令前添加几个空指令的尝试，凑巧使<code>if_loop</code>中的循环对齐了，所以运行结果又恢复正常。
+汇编中有一个专门的东西用于实现指令对齐，
+<a href="http://sourceware.org/binutils/docs/as/P2align.html" target="_blank">p2align（Pad to Align）</a>：</p>
+
+<blockquote>
+<p style="color:navy">.p2align abs-expr, abs-expr, abs-expr</p>
+<ol>
+  <li>第一个参数控制对齐边界（2^N，即让地址低N位为0），如《Intel® 64 and IA-32 Architectures Optimization Reference Manual》中建议「All branch targets should be 16-byte aligned.」 则可以写 <code>.p2align 4</code>。</li>
+  <li>第二个可选参数为填充数据，默认是汇编器自己选择，在Code Section则用NOP填充，即等价于：<code>.p2align 4,0x90</code>。</li>
+  <li>第三个可选参数为最大填充字节，如<code>.p2align 4,,8</code>表示当需要填充的数据大于8个字节时则干脆不要对齐算了。</li>
+</ol>
+</blockquote>
+
+<p>有了这个命令，就不用自己试到底在循环前添加多少NOP才能对齐了，直接在代码里加上<code>.p2align 4</code>即可。添加上这段代码后看到执行结果又恢复正常，那么就可以基本确定是指令对齐的影响了。</p>
+
+<h2>重现问题</h2>
+<p>如果能够看到CPU执行未对齐指令时具体发生了什么，那就再好不过了。比如一开始我猜测会不会是未对齐的空循环执行时 L1 icache 上 Cache Miss 率更高，虽然理论上只有 Direct Mapped Cache 才会导致这样的结果，而现实中的 N-way  Set-Associative Cache 只有 Jump 超过 ChunkSize 才会产生 Thrashing，不过通过Linux的<a href="https://perf.wiki.kernel.org/" target="_blank">perf</a>工具测试一下就可以立刻推翻这种猜想了：</p>
+
+<pre class="terminal">
+<span style="color:#BCD"># 可以分别统计两个函数执行时icache miss的情况
+# 需要你的CPU支持该统计功能</span>
+perf stat -e L1-icache-load-misses ./a.out
+</pre>
+
+<p>类似还有Branch Miss事件也可以统计。不过Code Fetch则没有办法直接拿到统计数据了。为了确认指令对齐会对性能造成影响，我们必须找到一个能有效重现问题的方法，否则连我自己都会怀疑是不是当时我的编译姿势不对。但是让指令对齐产生性能影响其实并不容易，因为指令不对齐的话，CPU大不了重新到 L1 icache 中再多读一段指令，而 L1 Cache的访问速度只有大约1到2个Clock Cycle，最多相当于执行一条<code>IMUL</code>指令。要构造出一个有效的实验，至少需要考虑以下几个因素：</p>
+<ol>
+  <li>循环体必须小于CPU的FetchBlockSize，大于的话对齐也就无济于事了。</li>
+  <li>循环体的指令消耗的时间必须足够小，否则每次多出的2个Clock在整体执行时间中所占比重太小，无法看出差异。所以这里仍然选择空循环。</li>
+  <li>小心CPU的黑魔法，测试结果不符合预期也有可能只是开机姿势不对 TOT。</li>
+</ol>
+
+<p>接下来构造这样一个测试，在循环体前面不断添加NOP填充，然后运行程序，看看执行时间随着NOP填充增大呈怎样的变化。但预期测试结果是什么样子的呢？什么情况下NOP填充会影响程序性能？按照预期，当<code>LoopStartAddress % FetchBlockSize &lt; LoopBodySize</code>时，即循环起始字节刚好落在AlignBoundary结尾时，循环体需要多次Fetch。所以程序执行时间会呈周期性，每隔 FetchBlockSize 的NOP填充，程序执行时间就会突然增大。在Linux上可以通过下面的命令获得FetchBlockSize：</p>
+<pre class="terminal">
+cpuid -1|grep "byte prefetching"
+</pre>
+
+<p>下面是Ruby测试代码，分别生成从0到512字节填充的汇编代码，统计程序执行时间，最后交给<a href="http://www.gnuplot.info/" target="_blank">GNU Plot</a>绘制线图，X轴为NOP填充数量，Y轴为执行时长：</p>
+<div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env ruby</span>
+<span class="no">MAX_PAD</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">**</span> <span class="mi">9</span>
+<span class="no">LOOP_COUNT</span><span class="o">=</span> <span class="mi">2</span> <span class="o">**</span> <span class="mi">20</span>
+<span class="no">FETCH_BLOCK_SIZE</span><span class="o">=</span><span class="p">(</span><span class="sb">`cpuid|grep &quot;prefetching&quot;`</span><span class="o">.</span><span class="n">match</span> <span class="sr">/(\d+)\s+byte/</span><span class="p">)</span><span class="o">[</span><span class="mi">1</span><span class="o">].</span><span class="n">to_i</span>
+<span class="no">TMP_S</span><span class="o">=</span><span class="s1">&#39;/tmp/align-test.s&#39;</span>
+<span class="no">TMP_BIN</span><span class="o">=</span><span class="s1">&#39;/tmp/align-test.bin&#39;</span>
+
+<span class="k">def</span> <span class="nf">p2align</span><span class="p">(</span><span class="nb">p</span><span class="p">)</span>
+  <span class="n">padding</span><span class="o">=</span> <span class="p">(</span><span class="o">[</span><span class="s1">&#39;nop&#39;</span><span class="o">]</span> <span class="o">*</span> <span class="nb">p</span><span class="p">)</span><span class="o">.</span><span class="n">join</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+  <span class="n">code</span><span class="o">=&lt;&lt;</span><span class="dl">ASM</span>
+<span class="sh">.section .data</span>
+<span class="sh">  msg: .asciz &quot;%d\\n&quot;</span>
+<span class="sh">.section .text</span>
+<span class="sh">.global main</span>
+<span class="sh">main:</span>
+<span class="sh">  call empty_loop</span>
+<span class="sh">  push %eax</span>
+<span class="sh">  push $msg</span>
+<span class="sh">  call printf</span>
+<span class="sh">  call exit</span>
+
+<span class="sh">empty_loop:</span>
+<span class="sh">  jmp after_pad</span>
+<span class="sh">  #{padding}</span>
+<span class="sh">  after_pad:</span>
+<span class="sh">  call clock</span>
+<span class="sh">  pushl %eax</span>
+<span class="sh">  movl $#{LOOP_COUNT},%ecx</span>
+<span class="sh">  loop_start:</span>
+<span class="sh">    dec %ecx</span>
+<span class="sh">    dec %ecx</span>
+<span class="sh">    cmpl $0,%ecx</span>
+<span class="sh">  jge loop_start</span>
+<span class="sh">  call clock</span>
+<span class="sh">  popl %ecx</span>
+<span class="sh">  subl %ecx,%eax</span>
+<span class="sh">  ret</span>
+<span class="dl">ASM</span>
+
+  <span class="no">File</span><span class="o">.</span><span class="n">open</span> <span class="no">TMP_S</span><span class="p">,</span><span class="s1">&#39;wb&#39;</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="n">f</span><span class="o">.</span><span class="n">write</span> <span class="n">code</span> <span class="k">end</span>
+  <span class="sb">`gcc </span><span class="si">#{</span><span class="no">TMP_S</span><span class="si">}</span><span class="sb"> -o </span><span class="si">#{</span><span class="no">TMP_BIN</span><span class="si">}</span><span class="sb">`</span>
+  <span class="n">i</span><span class="o">=</span><span class="mi">1</span> <span class="c1"># 要不要多执行几次取平均值呢？</span>
+  <span class="n">clocks</span><span class="o">=</span><span class="mi">0</span>
+  <span class="n">i</span><span class="o">.</span><span class="n">times</span> <span class="k">do</span>
+    <span class="n">c</span><span class="o">=</span><span class="sb">`</span><span class="si">#{</span><span class="no">TMP_BIN</span><span class="si">}</span><span class="sb">`</span><span class="o">.</span><span class="n">to_i</span>
+    <span class="n">clocks</span><span class="o">+=</span><span class="n">c</span>
+  <span class="k">end</span>
+  <span class="k">return</span> <span class="n">clocks</span> <span class="o">/</span> <span class="n">i</span>
+<span class="k">end</span>
+<span class="no">DAT_FILE</span><span class="o">=</span><span class="s2">&quot;align-perf-plot.dat&quot;</span>
+<span class="n">dat</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="o">..</span><span class="no">MAX_PAD</span><span class="p">)</span><span class="o">.</span><span class="n">map</span> <span class="p">{</span><span class="o">|</span><span class="nb">p</span><span class="o">|</span> <span class="s2">&quot;</span><span class="si">#{</span><span class="nb">p</span><span class="si">}</span><span class="s2"> </span><span class="si">#{</span><span class="n">p2align</span> <span class="nb">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="p">}</span>
+<span class="no">File</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="no">DAT_FILE</span><span class="p">,</span><span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="p">{</span><span class="o">|</span><span class="n">f</span><span class="o">|</span><span class="n">f</span><span class="o">.</span><span class="n">write</span> <span class="n">dat</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)}</span>
+
+<span class="n">plot_cmd</span><span class="o">=&lt;&lt;</span><span class="dl">CMD</span>
+<span class="sh">set ylabel &quot;Clocks&quot;</span>
+<span class="sh">set xlabel &quot;Padding&quot;</span>
+<span class="sh">set xtics #{FETCH_BLOCK_SIZE}</span>
+<span class="sh">set tics out</span>
+<span class="sh">set xrange [0:#{MAX_PAD}]</span>
+<span class="sh">set xtics nomirror</span>
+<span class="sh">set ytics nomirror</span>
+<span class="sh">set style data lines</span>
+<span class="sh">set terminal png font &quot;sans-serif,16&quot; size #{[(MAX_PAD/FETCH_BLOCK_SIZE)*70,1080].max},300</span>
+<span class="sh">set output &quot;align-perf-plot.png&quot;</span>
+<span class="sh">plot &quot;#{DAT_FILE}&quot; title  &quot;Time&quot;  lw 2 lc rgb &quot;blue&quot;</span>
+<span class="dl">CMD</span>
+
+<span class="no">IO</span><span class="o">.</span><span class="n">popen</span> <span class="s1">&#39;gnuplot&#39;</span><span class="p">,</span><span class="s1">&#39;w&#39;</span> <span class="k">do</span> <span class="o">|</span><span class="n">io</span><span class="o">|</span> <span class="n">io</span><span class="o">.</span><span class="n">puts</span> <span class="n">plot_cmd</span> <span class="k">end</span>
+</pre></div>
+
+<p>程序执行完后会生成一个<code>align-perf-plot.png</code>文件，下面是在我机器上运行得到的结果：</p>
+<p class="text-center"><img style="max-width:800px;height:auto;" src="../img/align-perf-plot.png" alt="Code Align Performance" /></p>
+
+<p>结果好像还挺理想的是不是？我将X轴步长设置成 FetchSize以便于看出执行时长的周期性，可以看到结果完全符合预期，每隔64字节的Padding，程序执行时间就会有个峰值。不过要是仔细看汇编代码你就会发现为什么循环体内有两条<code>dec %ecx</code>指令？为了避免其它不必要的影响，这个空循环中只使用寄存器，没有访问内存。但太简单也有它的坏处，如果你将程序改成只有一条<code>dec %ecx</code>指令，你可能会得到程序执行时间和指令对齐不呈相关性的结果。为什么会这样子呢？这个就是CPU的黑魔法吗？我只能猜测是受分支预测和Prefetch的影响，在Pipeline上执行<code>cmpl $0,%ecx</code>的同时，CPU可以预加载后面将要执行到的指令，也就是说这个时候CPU可能已经在并行加载下次循环的<code>dec %ecx</code>指令了，所以额外的Fetch时间会被并行执行抵消。为什么将这条指令重复一下就可以得到预期的结果？如果你只是添加上<code>dec %eax</code>是没用的，因为这条指令可以和前面的指令并行执行，多条指令同时依赖<code>%ecx</code>才能造成 Stall，使得循环体在Pipeline上变长，这样读取未对齐指令额外消耗的时间才能凸现——好像证明了一个猜想又带来了另一个新的猜想？总之我的编译姿势肯定是正确的，上面的程序能100%重现问题就是铁证。</p>
+
+<h2>最后结论</h2>
+<p>那又如何？指令对齐的性能影响是非常小的，而且为了对齐而添加的NOP指令也会造成浪费。
+<br />—— 但我现在知道可以用 GNU Plot 画图了啊。</p>
+    
+  </article>
+  <hr />
+  
+    <nav class="near-posts link-list">
+    
+            <a href="./triple-regex.html" rel="next"><i>⇦</i><em>正则表达式匹配N的倍数</em></a>
+        
+        
+            <a href="./linux-assembly-command-line-arguments-stack-layout.html" rel="prev" class="prev"><i>⇨</i><em>Linux命令行参数在栈中的分配</em></a>
+        
+    </nav>
+    <hr />
+  
+
+  
+    <div id="disqus_thread"></div>
+    <script type="text/javascript">
+        var disqus_shortname = "jexim";
+        var disqus_config = function () {
+          this.page.url = "https://jex.im/./instruction-align-perf.html";
+          this.page.identifier = "programming/instruction-align-perf";
+          this.page.category_id = "programming";
+          this.page.title = "指令对齐性能影响初探";
+        };
+
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = 'https://' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+  
+
+
+<!-- Build: 2019-07-14 13:22:43 +0800 -->
+  <footer class="site-footer">
+      <a rel="license"
+      title="This blog is licensed under a Creative Commons Attribution-ShareAlike 3.0 Unported License."
+      href="https://creativecommons.org/licenses/by-sa/3.0/deed.zh" target="_blank"><!--img alt="知识共享许可协议" src="https://i.creativecommons.org/l/by-sa/3.0/80x15.png" width="80" height="14" /--><img width="80" height="15" title="知识共享许可协议" alt="知识共享许可协议" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAPCAIAAAD8q9/YAAAABGdBTUEAANbY1E9YMgAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAAIySURBVHjaYmAYYYARiP///z9SfMvIyAJhrdm0Glliz669M6fO7OjoKC8vx9Tm6up66tSptu5WcQlxIFdeVsHVyfXjh4+D3LeQeGXClHj54uXyxctx+RYIdu/ebWZmNrl/CoT74eOHwoLCoRLJWDy8fMkKYWFhXL6FAGBw3Lxxc8PajUD2x08fPHw8vH28h6qHL128lJ6eDmScPXtWWVkZmO6Bafj9+/dAEsgGigDFjY2NXVxcrl29BjWFiQnIRUs/EICcnDDZ+LXQonBhwvDt5c+fPgP9A2SHhYUBGUBbgWRnZyfQn+/evQPG/L1794CyQME7t+/AUzUwkWOWEEAAcTScASSBbKy+ZYQBZC7V/Yzu4a9fvgBJQUFBYJQCPQbxOTABA9lKSkpA8bS0tNDQUFgRD3X6z58/GFkYscYY3HsQ18O5aPEJkUVLCPSIYW4eHiAJ9C3Qb0AfAmMVUiwDuUA/A8UrKipmzZqFljjZ2Tn+//mPJ4ax1hDw+MSqHk2WVh7W09fl5eWF+BMYsXv27AHaCvQ5kA2MbSEhIaAIJLueOXNGUVkRokuAXwBYUeGPYYJ1BknqKW14INfDfV39z58+v3//Ph5twBAxMTGJjosOCPYHcmWl5Zobmrdu2TrI62FgaGIppaPjot6+fQOMUjyay8rKVFSVIb7l5xPYsWXHIPctvmoJ2H5KzUytrKxsb2/HqsfJ2en69esFJQXw9Nw/oX+0LT1I29IjrbPEABBgAEdwNeO7yfOaAAAAAElFTkSuQmCC" /></a>
+      <small>
+        Powered by <a href="https://jex.im/PlainSite/" target="_blank">PlainSite</a>.
+      </small>
+  </footer>
+</body>
+</html>
