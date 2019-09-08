@@ -1,4 +1,4 @@
-Jex's Blog
+Jex is dead
 ===========
 
 
